@@ -68,8 +68,9 @@ def main(args):
     print('Building vocab')
     if 'answer' in questions[0]:
       answer_token_to_idx = build_vocab(
-        (q['answer'] for q in questions)
+        (str(q['answer']) for q in questions)
       )
+      answer_token_to_idx['8'] = max(answer_token_to_idx.values()) + 1 # TODO: remove this, it's an artifact of small data on my local comp
     question_token_to_idx = build_vocab(
       (q['question'] for q in questions),
       min_token_count=args.unk_threshold,
@@ -139,8 +140,10 @@ def main(args):
       programs_encoded.append(program_encoded)
 
     if 'answer' in q:
-      answers.append(vocab['answer_token_to_idx'][q['answer']])
-
+      try:
+        answers.append(vocab['answer_token_to_idx'][str(q['answer'])])
+      except Exception as e:
+        print(e)
   # Pad encoded questions and programs
   max_question_length = max(len(x) for x in questions_encoded)
   for qe in questions_encoded:
