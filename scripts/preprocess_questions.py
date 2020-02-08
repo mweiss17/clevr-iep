@@ -58,11 +58,20 @@ def main(args):
   if (args.input_vocab_json == '') and (args.output_vocab_json == ''):
     print('Must give one of --input_vocab_json or --output_vocab_json')
     return
-
-  print('Loading data')
-  with open(args.input_questions_json, 'r') as f:
-    questions = json.load(f)['questions']
-
+  if "train" in args.output_h5_file:
+      subdirs = [x for x in range(25)]
+  elif "val" in args.output_h5_file:
+      subdirs = [25, 26]
+  else:
+      subdirs = [27, 28, 29]
+  print(subdirs)
+  questions = []
+  for subdir in subdirs:
+    full_path = os.path.join(args.input_questions_json, str(subdir), "questions.json")
+    qs = json.load(open(full_path, 'r'))['questions']
+    for q in qs:
+        q['subdir'] = subdir
+    questions.extend(qs)
   # Either create the vocab or load it from disk
   if args.input_vocab_json == '' or args.expand_vocab == 1:
     print('Building vocab')
@@ -70,7 +79,7 @@ def main(args):
       answer_token_to_idx = build_vocab(
         (str(q['answer']) for q in questions)
       )
-      answer_token_to_idx['8'] = max(answer_token_to_idx.values()) + 1 # TODO: remove this, it's an artifact of small data on my local comp
+      #answer_token_to_idx['8'] = max(answer_token_to_idx.values()) + 1 # TODO: remove this, it's an artifact of small data on my local comp
     question_token_to_idx = build_vocab(
       (q['question'] for q in questions),
       min_token_count=args.unk_threshold,

@@ -65,12 +65,20 @@ def run_batch(cur_batch, model):
 def main(args):
   input_paths = []
   idx_set = set()
-  for fn in os.listdir(args.input_image_dir):
-    if not fn.endswith('.png'): continue
-    idx = os.path.splitext(fn)[0].split('_')[-1]
-    input_paths.append((os.path.join(args.input_image_dir, fn), idx))
-    idx_set.add(idx)
-
+  if "train" in args.output_h5_file:
+      subdirs = [x for x in range(25)]
+  elif "val" in args.output_h5_file:
+      subdirs = [25, 26] 
+  else:
+      subdirs = [27, 28, 29]
+  print(subdirs)
+  for subdir in subdirs:
+    full_path = os.path.join(args.input_image_dir, str(subdir), "images")
+    for fn in os.listdir(full_path):
+        if not fn.endswith('.png'): continue
+        idx = os.path.join(str(subdir) + "-" + os.path.splitext(fn)[0].split('_')[-1])
+        input_paths.append((os.path.join(full_path, fn), idx))
+        idx_set.add(idx)
   input_paths.sort(key=lambda x: x[1])
   assert len(idx_set) == len(input_paths)
   # assert min(idx_set) == data and max(idx_set) == len(idx_set) - 1
