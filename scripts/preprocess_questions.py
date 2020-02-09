@@ -79,7 +79,6 @@ def main(args):
       answer_token_to_idx = build_vocab(
         (str(q['answer']) for q in questions)
       )
-      #answer_token_to_idx['8'] = max(answer_token_to_idx.values()) + 1 # TODO: remove this, it's an artifact of small data on my local comp
     question_token_to_idx = build_vocab(
       (q['question'] for q in questions),
       min_token_count=args.unk_threshold,
@@ -129,30 +128,35 @@ def main(args):
   for orig_idx, q in enumerate(questions):
     question = q['question']
 
-    orig_idxs.append(orig_idx)
-    image_idxs.append(q['image_index'])
-    if 'question_family_index' in q:
-      question_families.append(q['question_family_index'])
-    question_tokens = tokenize(question,
-                        punct_to_keep=[';', ','],
-                        punct_to_remove=['?', '.'])
-    question_encoded = encode(question_tokens,
-                         vocab['question_token_to_idx'],
-                         allow_unk=args.encode_unk == 1)
-    questions_encoded.append(question_encoded)
+    # We need to ask the same question about each view of the scene, and there are 20 views of each scene
+    offset = 6680 * q['subdir'] + q['image_index'] * 20
 
-    if 'program' in q:
-      program = q['program']
-      program_str = program_to_str(program, args.mode)
-      program_tokens = tokenize(program_str)
-      program_encoded = encode(program_tokens, vocab['program_token_to_idx'])
-      programs_encoded.append(program_encoded)
+    for view in range(20):
 
-    if 'answer' in q:
-      try:
-        answers.append(vocab['answer_token_to_idx'][str(q['answer'])])
-      except Exception as e:
-        print(e)
+      orig_idxs.append(orig_idx)
+      image_idxs.append(offset + view)
+      if 'question_family_index' in q:
+        question_families.append(q['question_family_index'])
+      question_tokens = tokenize(question,
+                          punct_to_keep=[';', ','],
+                          punct_to_remove=['?', '.'])
+      question_encoded = encode(question_tokens,
+                           vocab['question_token_to_idx'],
+                           allow_unk=args.encode_unk == 1)
+      questions_encoded.append(question_encoded)
+
+      if 'program' in q:
+        program = q['program']
+        program_str = program_to_str(program, args.mode)
+        program_tokens = tokenize(program_str)
+        program_encoded = encode(program_tokens, vocab['program_token_to_idx'])
+        programs_encoded.append(program_encoded)
+
+      if 'answer' in q:
+        try:
+          answers.append(vocab['answer_token_to_idx'][str(q['answer'])])
+        except Exception as e:
+          print(e)
   # Pad encoded questions and programs
   max_question_length = max(len(x) for x in questions_encoded)
   for qe in questions_encoded:
