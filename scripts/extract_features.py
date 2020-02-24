@@ -24,6 +24,7 @@ parser.add_argument('--image_width', default=224, type=int)
 parser.add_argument('--model', default='resnet101')
 parser.add_argument('--model_stage', default=3, type=int)
 parser.add_argument('--batch_size', default=128, type=int)
+parser.add_argument('--multi_dir', action='store_true')
 
 
 def build_model(args):
@@ -65,17 +66,25 @@ def run_batch(cur_batch, model):
 def main(args):
   input_paths = []
   idx_set = set()
-  if "train" in args.output_h5_file:
+  if "train" in args.output_h5_file and args.multi_dir:
       subdirs = [x for x in range(25)]
-  elif "val" in args.output_h5_file:
+  elif "val" in args.output_h5_file  and args.multi_dir:
       subdirs = [25, 26] 
-  else:
+  elif args.multi_dir:
       subdirs = [27, 28, 29]
+  else:
+    subdirs = []
+    for fn in os.listdir(args.input_image_dir):
+        if not fn.endswith('.png') and not fn.endswith('.jpg'): continue
+        idx = os.path.join(os.path.splitext(fn)[0].split('_')[-1])
+        input_paths.append((os.path.join(args.input_image_dir, fn), idx))
+        idx_set.add(idx)
+
   print(subdirs)
   for subdir in subdirs:
     full_path = os.path.join(args.input_image_dir, str(subdir), "images")
     for fn in os.listdir(full_path):
-        if not fn.endswith('.png'): continue
+        if not fn.endswith('.png') and not fn.endswith('.jpg'): continue
         idx = os.path.join(str(subdir) + "-" + os.path.splitext(fn)[0].split('_')[-1])
         input_paths.append((os.path.join(full_path, fn), idx))
         idx_set.add(idx)
@@ -113,6 +122,7 @@ def main(args):
         cur_batch = []
     if len(cur_batch) > 0:
       feats = run_batch(cur_batch, model)
+
       i1 = i0 + len(cur_batch)
       feat_dset[i0:i1] = feats
       print('Processed %d / %d images' % (i1, len(input_paths)))

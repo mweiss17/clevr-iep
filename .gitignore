@@ -1,4 +1,6 @@
+.idea/
 models/
+*.zip
 data/
 *.pyc
 .env/

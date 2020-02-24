@@ -2,7 +2,7 @@ import torch
 import os
 import json
 from transformers.modeling_bert import BertLayerNorm, BertEmbeddings, BertEncoder, BertConfig, BertPreTrainedModel
-
+from transformers import BertTokenizer
 
 
 base_path = "../clevr-dataset-gen/output/"
@@ -36,6 +36,11 @@ class TextBert(BertPreTrainedModel):
         return seq_output
 
 
+bert_cfg = BertConfig()
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+text_bert = TextBert.from_pretrained(
+    'bert-base-uncased', config=bert_cfg
+)
 
 for scene in scenes:
     for view_name, view_struct in scene.items():
@@ -43,17 +48,14 @@ for scene in scenes:
         for object in view_struct['objects']:
             text = object['text']
             body = text['body']
-            bert_cfg = BertConfig()
-
-            text_bert = TextBert.from_pretrained(
-                'bert-base-uncased', config=bert_cfg
-            )
+            input_ids = torch.tensor([tokenizer.encode(body)])
+            ocr_emb = text_bert(txt_inds=input_ids, txt_mask=torch.ones(input_ids.shape))
+            word_bbox = torch.Tensor(text['word_bboxes']['cc'])
             import pdb; pdb.set_trace()
-            text_bert(
-                txt_inds=fwd_results['txt_inds'],
-                txt_mask=fwd_results['txt_mask']
-            )
 
-            import pdb; pdb.set_trace()
+            wb = LayerNorm(word_bbox)
+
+
+
             print(text)
         # image = view_struct['image_filename']

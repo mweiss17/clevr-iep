@@ -72,12 +72,11 @@ class ClevrDataset(Dataset):
 
     feats = self.feature_h5['features'][image_idx]
     feats = torch.FloatTensor(np.asarray(feats, dtype=np.float32))
-
     program_json = None
     if program_seq is not None:
       program_json_seq = []
       for fn_idx in program_seq:
-        fn_str = self.vocab['program_idx_to_token'][fn_idx]
+        fn_str = self.vocab['program_idx_to_token'][int(fn_idx.data.numpy())]
         if fn_str == '<START>' or fn_str == '<END>': continue
         fn = iep.programs.str_to_function(fn_str)
         program_json_seq.append(fn)
