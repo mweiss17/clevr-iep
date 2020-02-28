@@ -24,16 +24,20 @@ import h5py
 import iep.utils as utils
 import iep.preprocess
 from iep.data import ClevrDataset, ClevrDataLoader
-from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel
+from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel, TowerRepresentation, MMModel
 
 
 parser = argparse.ArgumentParser()
 
 # Input data
 parser.add_argument('--train_question_h5', default='data/train_questions.h5')
-parser.add_argument('--train_features_h5', default='data/train_features.h5')
+parser.add_argument('--train_features_h5')
+parser.add_argument('--train_images_h5', default='data/train_images.h5')
+parser.add_argument('--train_ocr_token_json')
 parser.add_argument('--val_question_h5', default='data/val_questions.h5')
-parser.add_argument('--val_features_h5', default='data/val_features.h5')
+parser.add_argument('--val_features_h5')
+parser.add_argument('--val_images_h5', default='data/val_images.h5')
+parser.add_argument('--val_ocr_token_json')
 parser.add_argument('--feature_dim', default='1024,14,14')
 parser.add_argument('--vocab_json', default='data/vocab.json')
 
@@ -48,7 +52,7 @@ parser.add_argument('--shuffle_train_data', default=1, type=int)
 
 # What type of model to use and which parts to train
 parser.add_argument('--model_type', default='PG',
-        choices=['PG', 'EE', 'PG+EE', 'LSTM', 'CNN+LSTM', 'CNN+LSTM+SA'])
+        choices=['PG', 'EE', 'PG+EE', 'LSTM', 'CNN+LSTM', 'CNN+LSTM+SA', "PG+EE+GQNT"])
 parser.add_argument('--train_program_generator', default=1, type=int)
 parser.add_argument('--train_execution_engine', default=1, type=int)
 parser.add_argument('--baseline_train_only_rnn', default=0, type=int)
@@ -135,6 +139,8 @@ def main(args):
     'question_families': question_families,
     'max_samples': args.num_train_samples,
     'num_workers': args.loader_num_workers,
+    'image_h5': args.train_images_h5,
+    'ocr_token_json': args.train_ocr_token_json
   }
   val_loader_kwargs = {
     'question_h5': args.val_question_h5,
@@ -144,8 +150,9 @@ def main(args):
     'question_families': question_families,
     'max_samples': args.num_val_samples,
     'num_workers': args.loader_num_workers,
+    'image_h5': args.val_images_h5,
+    'ocr_token_json': args.val_ocr_token_json
   }
-
   with ClevrDataLoader(**train_loader_kwargs) as train_loader, \
        ClevrDataLoader(**val_loader_kwargs) as val_loader:
     train_loop(args, train_loader, val_loader)
@@ -167,13 +174,13 @@ def train_loop(args, train_loader, val_loader):
   pg_best_state, ee_best_state, baseline_best_state = None, None, None
 
   # Set up model
-  if args.model_type == 'PG' or args.model_type == 'PG+EE':
+  if args.model_type == 'PG' or args.model_type == 'PG+EE' or args.model_type == 'PG+EE+GQNT':
     program_generator, pg_kwargs = get_program_generator(args)
     pg_optimizer = torch.optim.Adam(program_generator.parameters(),
                                     lr=args.learning_rate)
     print('Here is the program generator:')
     print(program_generator)
-  if args.model_type == 'EE' or args.model_type == 'PG+EE':
+  if args.model_type == 'EE' or args.model_type == 'PG+EE'or args.model_type == 'PG+EE+GQNT':
     execution_engine, ee_kwargs = get_execution_engine(args)
     ee_optimizer = torch.optim.Adam(execution_engine.parameters(),
                                     lr=args.learning_rate)
@@ -188,6 +195,17 @@ def train_loop(args, train_loader, val_loader):
     print('Here is the baseline model')
     print(baseline_model)
     baseline_type = args.model_type
+  if args.model_type == 'PG+EE+GQNT':
+    kwargs = {
+      'n_channels': 256,
+      'v_dim': 256
+    }
+    model = MMModel(**kwargs)
+    params = model.parameters()
+    baseline_optimizer = torch.optim.Adam(params, lr=args.learning_rate)
+    print('Here is the GQNT model')
+    print(model)
+
   loss_fn = torch.nn.CrossEntropyLoss().cuda()
 
   stats = {
@@ -207,9 +225,13 @@ def train_loop(args, train_loader, val_loader):
     print('Starting epoch %d' % epoch)
     for batch in train_loader:
       t += 1
-      questions, _, feats, answers, programs, _ = batch
+      import pdb; pdb.set_trace()
+      questions, images, feats, answers, programs, _, ocr_tokens = batch
       questions_var = Variable(questions.cuda())
-      feats_var = Variable(feats.cuda())
+      if images[0] is not None:
+        images_var = Variable(images.cuda())
+      else:
+        feats_var = Variable(feats.cuda())
       answers_var = Variable(answers.cuda())
       if programs[0] is not None:
         programs_var = Variable(programs.cuda())
@@ -235,6 +257,13 @@ def train_loop(args, train_loader, val_loader):
         loss = loss_fn(scores, answers_var)
         loss.backward()
         baseline_optimizer.step()
+      elif args.model_type == 'GQNT':
+        baseline_optimizer.zero_grad()
+        model.zero_grad()
+        scores = model(questions_var, feats_var)
+        loss = loss_fn(scores, answers_var)
+        loss.backward()
+        baseline_optimizer.step()
       elif args.model_type == 'PG+EE':
         programs_pred = program_generator.reinforce_sample(questions_var)
         scores = execution_engine(feats_var, programs_pred)
@@ -255,6 +284,36 @@ def train_loop(args, train_loader, val_loader):
           pg_optimizer.zero_grad()
           program_generator.reinforce_backward(centered_reward.cuda())
           pg_optimizer.step()
+      elif args.model_type == 'PG+EE+GQNT':
+        programs_pred = program_generator.reinforce_sample(questions_var)
+        baseline_optimizer.zero_grad()
+        model.zero_grad()
+        import pdb; pdb.set_trace()
+
+        scores = model(images)
+        loss = loss_fn(scores, answers_var)
+        loss.backward()
+        baseline_optimizer.step()
+
+        feats_var = model(images)
+        scores = execution_engine(feats_var, programs_pred)
+
+        loss = loss_fn(scores, answers_var)
+        _, preds = scores.data.cpu().max(1)
+        raw_reward = (preds == answers).float()
+        reward_moving_average *= args.reward_decay
+        reward_moving_average += (1.0 - args.reward_decay) * raw_reward.mean()
+        centered_reward = raw_reward - reward_moving_average
+
+        if args.train_execution_engine == 1:
+          ee_optimizer.zero_grad()
+          loss.backward()
+          ee_optimizer.step()
+
+        # if args.train_program_generator == 1:
+        #   pg_optimizer.zero_grad()
+        #   program_generator.reinforce_backward(centered_reward.cuda())
+        #   pg_optimizer.step()
 
       if t % args.record_loss_every == 0:
         print(t, loss.data.item())
@@ -446,20 +505,21 @@ def check_accuracy(args, program_generator, execution_engine, baseline_model, lo
   num_correct, num_samples = 0, 0
   for batch in loader:
     questions, _, feats, answers, programs, _ = batch
-
-    questions_var = Variable(questions.cuda(), volatile=True)
-    feats_var = Variable(feats.cuda(), volatile=True)
-    answers_var = Variable(feats.cuda(), volatile=True)
-    if programs[0] is not None:
-      programs_var = Variable(programs.cuda(), volatile=True)
+    with torch.no_grad():
+      questions_var = Variable(questions.cuda())
+      feats_var = Variable(feats.cuda())
+      answers_var = Variable(feats.cuda())
+      if programs[0] is not None:
+        programs_var = Variable(programs.cuda())
 
     scores = None # Use this for everything but PG
     if args.model_type == 'PG':
       vocab = utils.load_vocab(args.vocab_json)
       for i in range(questions.size(0)):
-        program_pred = program_generator.sample(Variable(questions[i:i+1].cuda(), volatile=True))
+        with torch.no_grad():
+          program_pred = program_generator.sample(Variable(questions[i:i+1].cuda()))
         program_pred_str = iep.preprocess.decode(program_pred, vocab['program_idx_to_token'])
-        program_str = iep.preprocess.decode(programs[i], vocab['program_idx_to_token'])
+        program_str = iep.preprocess.decode(programs[i].tolist(), vocab['program_idx_to_token'])
         if program_pred_str == program_str:
           num_correct += 1
         num_samples += 1

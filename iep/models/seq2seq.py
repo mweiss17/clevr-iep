@@ -151,7 +151,10 @@ class Seq2Seq(nn.Module):
       cur_y = Variable(torch.LongTensor([y[-1]]).type_as(x.data).view(1, 1))
       logprobs, h0, c0 = self.decoder(encoded, cur_y, h0=h0, c0=c0)
       _, next_y = logprobs.data.max(2)
-      y.append(next_y[0, 0, 0])
+      if next_y.dim() == 2:
+        y.append(next_y[0, 0].item())
+      else:
+        y.append(next_y[0, 0, 0])
       if len(y) >= max_length or y[-1] == self.END:
         break
     return y
@@ -167,18 +170,20 @@ class Seq2Seq(nn.Module):
     self.multinomial_probs = []
     for t in range(T):
       # logprobs is N x 1 x V
-      logprobs, h, c = self.decoder(encoded, cur_input, h0=h, c0=c)
-      logprobs = logprobs / temperature
-      probs = F.softmax(logprobs.view(N, -1)) # Now N x V
+      logprobs, h, c = self.decoder(encoded, cur_input.view(-1, 1), h0=h, c0=c)
+      logprobs = (logprobs / temperature).view(N, -1)
+
+      probs = F.softmax(logprobs, dim=1) # Now N x V
       if argmax:
         _, cur_output = probs.max(1)
       else:
-        cur_output = probs.multinomial() # Now N x 1
+        m = torch.distributions.Categorical(probs) # Now N x 1
+        cur_output = m.sample()
       self.multinomial_outputs.append(cur_output)
       self.multinomial_probs.append(probs)
       cur_output_data = cur_output.data.cpu()
       not_done = logical_not(done)
-      y[:, t][not_done] = cur_output_data[not_done]
+      y[:, t][not_done] = cur_output_data[not_done].view(-1)
       done = logical_or(done, cur_output_data.cpu() == self.END)
       cur_input = cur_output
       if done.sum() == N:
@@ -202,8 +207,9 @@ class Seq2Seq(nn.Module):
       for t, probs in enumerate(self.multinomial_probs):
         mask = Variable(output_mask[:, t])
         probs.register_hook(gen_hook(mask))
-
+    import pdb; pdb.set_trace()
     for sampled_output in self.multinomial_outputs:
+      self.multinomial_probs[sampled_output]
       sampled_output.reinforce(reward)
       grad_output.append(None)
     torch.autograd.backward(self.multinomial_outputs, grad_output, retain_variables=True)

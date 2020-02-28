@@ -132,9 +132,11 @@ def main(args):
           num_new_words += 1
       print('Found %d new words' % num_new_words)
 
-  with open(args.output_vocab_json.split(".")[0] + ".txt", "w") as out_file:
-    for word in vocab['ocr_to_idx'].keys():
-      out_file.write(word + "\n")
+  vocab_out_path = args.output_vocab_json.split(".")[0] + ".txt"
+  if vocab_out_path is not ".txt":
+    with open(vocab_out_path, "w") as out_file:
+      for word in vocab['ocr_to_idx'].keys():
+        out_file.write(word + "\n")
 
   if args.output_vocab_json != '':
     with open(args.output_vocab_json, 'w') as f:
