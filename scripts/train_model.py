@@ -197,8 +197,8 @@ def train_loop(args, train_loader, val_loader):
     baseline_type = args.model_type
   if args.model_type == 'PG+EE+GQNT':
     kwargs = {
-      'n_channels': 256,
-      'v_dim': 256
+      'n_channels': 3,
+      'v_dim': 224
     }
     model = MMModel(**kwargs)
     params = model.parameters()
@@ -225,7 +225,6 @@ def train_loop(args, train_loader, val_loader):
     print('Starting epoch %d' % epoch)
     for batch in train_loader:
       t += 1
-      import pdb; pdb.set_trace()
       questions, images, feats, answers, programs, _, ocr_tokens = batch
       questions_var = Variable(questions.cuda())
       if images[0] is not None:
@@ -288,9 +287,9 @@ def train_loop(args, train_loader, val_loader):
         programs_pred = program_generator.reinforce_sample(questions_var)
         baseline_optimizer.zero_grad()
         model.zero_grad()
-        import pdb; pdb.set_trace()
+        chars, locs = process_tokens(ocr_tokens)
 
-        scores = model(images)
+        scores = model(images, chars, locs)
         loss = loss_fn(scores, answers_var)
         loss.backward()
         baseline_optimizer.step()
@@ -366,6 +365,23 @@ def train_loop(args, train_loader, val_loader):
       if t == args.num_iterations:
         break
 
+def process_tokens(ocr_tokens):
+  depth = 26
+  ones = torch.sparse.torch.eye(depth)
+  chars = torch.FloatTensor([])
+  locs = torch.FloatTensor([])
+  for scene in ocr_tokens:
+    scene_chars = []
+    scene_locs = []
+    for token in scene:
+      char = ord(token['body']) - ord('a')
+      scene_chars.append(char)
+      scene_locs.append(token['pixel_coords'])
+    one_hot_chars = ones.index_select(0, torch.LongTensor(scene_chars))
+    chars = torch.cat([chars, one_hot_chars.view(1, -1, 26)], dim=0)
+    locs = torch.cat([locs, torch.FloatTensor(scene_locs).view(1, -1, 2)], dim=0)
+  assert locs.shape[0] == chars.shape[0]
+  return chars, locs
 
 def parse_int_list(s):
   return tuple(int(n) for n in s.split(','))
