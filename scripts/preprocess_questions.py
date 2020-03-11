@@ -16,6 +16,7 @@ import json
 import os
 
 import h5py
+from tqdm import tqdm
 import numpy as np
 
 import iep.programs
@@ -38,6 +39,7 @@ parser.add_argument('--unk_threshold', default=1, type=int)
 parser.add_argument('--encode_unk', default=0, type=int)
 parser.add_argument('--multi_dir', action="store_true")
 parser.add_argument('--num_views', default=1, type=int)
+parser.add_argument('--binary_qs_only', action="store_true")
 
 parser.add_argument('--output_h5_file', required=True)
 parser.add_argument('--output_vocab_json', default='')
@@ -71,24 +73,35 @@ def main(args):
     subdirs = []
 
   questions = []
+  scenes = []
   for subdir in subdirs:
-    full_path = os.path.join(args.input_questions_json, str(subdir), "questions.json")
-    qs = json.load(open(full_path, 'r'))['questions']
+    question_path = os.path.join(args.input_questions_json, str(subdir), "questions.json")
+    scene_path = os.path.join(args.input_scenes_json, str(subdir), "scenes.json")
+    ss = json.load(open(scene_path, "r"))['scenes']
+    for s in ss:
+      s['cc']['subdir'] = subdir
+    scenes.extend(ss)
+    qs = json.load(open(question_path, "r"))['questions']
     for q in qs:
         q['subdir'] = subdir
     questions.extend(qs)
   if not questions:
     questions = json.load(open(args.input_questions_json, "r"))['questions']
-  scenes = json.load(open(args.input_scenes_json, "r"))['scenes']
-
+  if not scenes:
+    scenes = json.load(open(args.input_scenes_json, "r"))['scenes']
+  if args.binary_qs_only:
+    filtered_questions = []
+    for q in tqdm(questions):
+      if q['answer'] in [True, False] and q['question'] != "?":
+        filtered_questions.append(q)
+    questions = filtered_questions
   # Either create the vocab or load it from disk
   if args.input_vocab_json == '' or args.expand_vocab == 1:
     print('Building vocab')
-
     if 'answer' in questions[0]:
       answer_token_to_idx = build_vocab(
-        (str(q['answer']) for q in questions)
-      )
+        (str(q['answer']) for q in questions),
+      answers_only=True)
     question_token_to_idx = build_vocab(
       (q['question'] for q in questions),
       min_token_count=args.unk_threshold,
@@ -115,7 +128,6 @@ def main(args):
       'program_token_to_idx': program_token_to_idx,
       'answer_token_to_idx': answer_token_to_idx,
     }
-
   if args.input_vocab_json != '':
     print('Loading vocab')
     if args.expand_vocab == 1:
@@ -150,12 +162,23 @@ def main(args):
   orig_idxs = []
   image_idxs = []
   answers = []
+  baseline = questions[0]['image_index']
   for orig_idx, q in enumerate(questions):
     question = q['question']
-
     # We need to ask the same question about each view of the scene, and there are 20 views of each scene
     if q.get("subdir"):
-      offset = 6680 * q['subdir'] + q['image_index'] * 20
+      offset = q['image_index'] - baseline
+      # num_images_per_subdir = len(os.listdir(os.path.join(args.input_scenes_json, str(subdir), "images")))
+      # image_name = questions[0]['image']
+      # count = 0
+      # for i in range(200):
+      #   image_name_2 = questions[i]['image']
+      #   if image_name != image_name_2:
+      #     break
+      #   count += 1
+      # num_questions_per_image = count
+      # import pdb; pdb.set_trace()
+      # offset = num_images_per_subdir * q['subdir'] + q['image_index'] * num_questions_per_image
     else:
       offset = q['image_index']
 

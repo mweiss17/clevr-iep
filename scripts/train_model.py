@@ -8,12 +8,12 @@
 
 import sys
 import os
-
+import time
 import argparse
 import json
 import random
 import shutil
-
+from tqdm import tqdm
 import torch
 torch.backends.cudnn.enabled = True
 from torch.autograd import Variable
@@ -72,6 +72,7 @@ parser.add_argument('--rnn_dropout', default=0, type=float)
 parser.add_argument('--module_stem_num_layers', default=2, type=int)
 parser.add_argument('--module_stem_batchnorm', default=0, type=int)
 parser.add_argument('--module_dim', default=128, type=int)
+parser.add_argument('--text_dim', default=1, type=int)
 parser.add_argument('--module_residual', default=1, type=int)
 parser.add_argument('--module_batchnorm', default=0, type=int)
 
@@ -223,15 +224,15 @@ def train_loop(args, train_loader, val_loader):
   while t < args.num_iterations:
     epoch += 1
     print('Starting epoch %d' % epoch)
+    start = time.time()
     for batch in train_loader:
+      # print("data loader: " + str(time.time() - start))
+      start_batch = time.time()
+
       t += 1
       questions, images, feats, answers, programs, _, ocr_tokens = batch
+      # print("mean answer value" + str((answers.sum() / float(len(answers))).item()))
       questions_var = Variable(questions.cuda())
-      if images[0] is not None:
-        images_var = Variable(images.cuda())
-      else:
-        feats_var = Variable(feats.cuda())
-      answers_var = Variable(answers.cuda())
       if programs[0] is not None:
         programs_var = Variable(programs.cuda())
 
@@ -244,22 +245,30 @@ def train_loop(args, train_loader, val_loader):
         pg_optimizer.step()
       elif args.model_type == 'EE':
         # Train execution engine with ground-truth programs
+        start = time.time()
+
         ee_optimizer.zero_grad()
-        scores = execution_engine(feats_var, programs_var)
+        if images[0] is not None:
+          images_var = Variable(images.cuda())
+        else:
+          feats_var = Variable(feats.cuda())
+        answers_var = Variable(answers.cuda())
+        text_embs = process_tokens(ocr_tokens)
+        # print("OCR loading / processing + put stuff on cuda: " + str(time.time() - start))
+        start = time.time()
+
+        scores = execution_engine(feats_var, programs_var, text_embs)
+        # print("Total Resnet + BiLSTM: " + str(time.time() - start))
+        start = time.time()
         loss = loss_fn(scores, answers_var)
         loss.backward()
         ee_optimizer.step()
+        # print("Optimization Step: " + str(time.time() - start))
+
       elif args.model_type in ['LSTM', 'CNN+LSTM', 'CNN+LSTM+SA']:
         baseline_optimizer.zero_grad()
         baseline_model.zero_grad()
         scores = baseline_model(questions_var, feats_var)
-        loss = loss_fn(scores, answers_var)
-        loss.backward()
-        baseline_optimizer.step()
-      elif args.model_type == 'GQNT':
-        baseline_optimizer.zero_grad()
-        model.zero_grad()
-        scores = model(questions_var, feats_var)
         loss = loss_fn(scores, answers_var)
         loss.backward()
         baseline_optimizer.step()
@@ -287,32 +296,12 @@ def train_loop(args, train_loader, val_loader):
         programs_pred = program_generator.reinforce_sample(questions_var)
         baseline_optimizer.zero_grad()
         model.zero_grad()
-        chars, locs = process_tokens(ocr_tokens)
-
-        scores = model(images, chars, locs)
+        text_embs = process_tokens(ocr_tokens)
+        scores = execution_engine(feats_var, programs_pred, text_embs)
         loss = loss_fn(scores, answers_var)
         loss.backward()
-        baseline_optimizer.step()
-
-        feats_var = model(images)
-        scores = execution_engine(feats_var, programs_pred)
-
-        loss = loss_fn(scores, answers_var)
-        _, preds = scores.data.cpu().max(1)
-        raw_reward = (preds == answers).float()
-        reward_moving_average *= args.reward_decay
-        reward_moving_average += (1.0 - args.reward_decay) * raw_reward.mean()
-        centered_reward = raw_reward - reward_moving_average
-
-        if args.train_execution_engine == 1:
-          ee_optimizer.zero_grad()
-          loss.backward()
-          ee_optimizer.step()
-
-        # if args.train_program_generator == 1:
-        #   pg_optimizer.zero_grad()
-        #   program_generator.reinforce_backward(centered_reward.cuda())
-        #   pg_optimizer.step()
+        ee_optimizer.step()
+      # print("total batch time (without data loading): " + str(time.time() - start_batch))
 
       if t % args.record_loss_every == 0:
         print(t, loss.data.item())
@@ -368,20 +357,27 @@ def train_loop(args, train_loader, val_loader):
 def process_tokens(ocr_tokens):
   depth = 26
   ones = torch.sparse.torch.eye(depth)
-  chars = torch.FloatTensor([])
-  locs = torch.FloatTensor([])
+  all_text_embs = torch.FloatTensor([])
+
+  # order the tokens by raster order
   for scene in ocr_tokens:
-    scene_chars = []
-    scene_locs = []
+    chars_d = {}
     for token in scene:
       char = ord(token['body']) - ord('a')
-      scene_chars.append(char)
-      scene_locs.append(token['pixel_coords'])
-    one_hot_chars = ones.index_select(0, torch.LongTensor(scene_chars))
-    chars = torch.cat([chars, one_hot_chars.view(1, -1, 26)], dim=0)
-    locs = torch.cat([locs, torch.FloatTensor(scene_locs).view(1, -1, 2)], dim=0)
-  assert locs.shape[0] == chars.shape[0]
-  return chars, locs
+      chars_d["." + str(token['pixel_coords'][1]).split(".")[-1] + "." + str(token['pixel_coords'][0]).split(".")[-1]] = char
+
+    scene_chars = []
+    scene_locs = []
+    for key in sorted(chars_d):
+      scene_chars.append(chars_d[key])
+      scene_locs.append((float("." + key.split(".")[2]), float("." + key.split(".")[1])))
+
+    scene_chars = ones.index_select(0, torch.LongTensor(scene_chars))
+    scene_locs_vec = torch.FloatTensor(scene_locs)#.view(1, -1, 2)
+    scene_text_emb = torch.cat([scene_chars, scene_locs_vec], dim=1)
+
+    all_text_embs = torch.cat([all_text_embs, scene_text_emb.view(1, -1, 28)], dim=0)
+  return all_text_embs
 
 def parse_int_list(s):
   return tuple(int(n) for n in s.split(','))
@@ -432,6 +428,7 @@ def get_execution_engine(args):
       'stem_batchnorm': args.module_stem_batchnorm == 1,
       'stem_num_layers': args.module_stem_num_layers,
       'module_dim': args.module_dim,
+      'text_dim': args.text_dim,
       'module_residual': args.module_residual == 1,
       'module_batchnorm': args.module_batchnorm == 1,
       'classifier_proj_dim': args.classifier_proj_dim,
@@ -519,15 +516,15 @@ def set_mode(mode, models):
 def check_accuracy(args, program_generator, execution_engine, baseline_model, loader):
   set_mode('eval', [program_generator, execution_engine, baseline_model])
   num_correct, num_samples = 0, 0
-  for batch in loader:
-    questions, _, feats, answers, programs, _ = batch
+  for batch in tqdm(loader):
+    questions, images, feats, answers, programs, _, ocr_tokens = batch
     with torch.no_grad():
       questions_var = Variable(questions.cuda())
-      feats_var = Variable(feats.cuda())
-      answers_var = Variable(feats.cuda())
+      if feats[0] is not None:
+        feats_var = Variable(feats.cuda())
+      answers_var = Variable(answers.cuda())
       if programs[0] is not None:
         programs_var = Variable(programs.cuda())
-
     scores = None # Use this for everything but PG
     if args.model_type == 'PG':
       vocab = utils.load_vocab(args.vocab_json)
@@ -540,13 +537,18 @@ def check_accuracy(args, program_generator, execution_engine, baseline_model, lo
           num_correct += 1
         num_samples += 1
     elif args.model_type == 'EE':
-        scores = execution_engine(feats_var, programs_var)
+      text_embs = process_tokens(ocr_tokens)
+      scores = execution_engine(feats_var, programs_var, text_embs)
     elif args.model_type == 'PG+EE':
       programs_pred = program_generator.reinforce_sample(
                           questions_var, argmax=True)
       scores = execution_engine(feats_var, programs_pred)
     elif args.model_type in ['LSTM', 'CNN+LSTM', 'CNN+LSTM+SA']:
       scores = baseline_model(questions_var, feats_var)
+    elif args.model_type == 'PG+EE+GQNT':
+      programs_pred = program_generator.reinforce_sample(questions_var)
+      text_embs = process_tokens(ocr_tokens)
+      scores = execution_engine(feats_var, programs_pred, text_embs)
 
     if scores is not None:
       _, preds = scores.data.cpu().max(1)

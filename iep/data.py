@@ -12,7 +12,7 @@ import json
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.dataloader import default_collate
-
+import os.path
 import iep.programs
 
 
@@ -113,8 +113,8 @@ class ClevrDataLoader(DataLoader):
       self.feature_h5 = h5py.File(feature_h5_path, 'r')
 
     self.image_h5 = None
-    if 'image_h5' in kwargs:
-      image_h5_path = kwargs.pop('image_h5')
+    image_h5_path = kwargs.pop('image_h5')
+    if image_h5_path and os.path.isfile(image_h5_path) :
       print('Reading images from ', image_h5_path)
       self.image_h5 = h5py.File(image_h5_path, 'r')
 

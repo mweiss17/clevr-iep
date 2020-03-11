@@ -50,7 +50,7 @@ def tokenize(s, delim=' ',
 
 
 def build_vocab(sequences, min_token_count=1, delim=' ',
-                punct_to_keep=None, punct_to_remove=None):
+                punct_to_keep=None, punct_to_remove=None, answers_only=False):
   token_to_count = {}
   tokenize_kwargs = {
     'delim': delim,
@@ -66,8 +66,9 @@ def build_vocab(sequences, min_token_count=1, delim=' ',
       token_to_count[token] += 1
 
   token_to_idx = {}
-  for token, idx in SPECIAL_TOKENS.items():
-    token_to_idx[token] = idx
+  if not answers_only:
+    for token, idx in SPECIAL_TOKENS.items():
+      token_to_idx[token] = idx
   for token, count in sorted(token_to_count.items()):
     if count >= min_token_count:
       token_to_idx[token] = len(token_to_idx)
