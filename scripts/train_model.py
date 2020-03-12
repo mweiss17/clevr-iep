@@ -40,6 +40,7 @@ parser.add_argument('--val_images_h5', default='data/val_images.h5')
 parser.add_argument('--val_ocr_token_json')
 parser.add_argument('--feature_dim', default='1024,14,14')
 parser.add_argument('--vocab_json', default='data/vocab.json')
+parser.add_argument('--multi_gpu', action='store_true')
 
 parser.add_argument('--loader_num_workers', type=int, default=1)
 parser.add_argument('--use_local_copies', default=0, type=int)
@@ -183,6 +184,8 @@ def train_loop(args, train_loader, val_loader):
     print(program_generator)
   if args.model_type == 'EE' or args.model_type == 'PG+EE'or args.model_type == 'PG+EE+GQNT':
     execution_engine, ee_kwargs = get_execution_engine(args)
+    if args.multi_gpu:
+      execution_engine = torch.nn.DataParallel(execution_engine)
     ee_optimizer = torch.optim.Adam(execution_engine.parameters(),
                                     lr=args.learning_rate)
     print('Here is the execution engine:')
@@ -228,13 +231,15 @@ def train_loop(args, train_loader, val_loader):
     for batch in train_loader:
       # print("data loader: " + str(time.time() - start))
       start_batch = time.time()
+      import pdb;pdb.set_trace()
+      device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
       t += 1
       questions, images, feats, answers, programs, _, ocr_tokens = batch
       # print("mean answer value" + str((answers.sum() / float(len(answers))).item()))
-      questions_var = Variable(questions.cuda())
+      questions_var = Variable(questions.to(device))
       if programs[0] is not None:
-        programs_var = Variable(programs.cuda())
+        programs_var = Variable(programs.to(device))
 
       reward = None
       if args.model_type == 'PG':
@@ -249,14 +254,15 @@ def train_loop(args, train_loader, val_loader):
 
         ee_optimizer.zero_grad()
         if images[0] is not None:
-          images_var = Variable(images.cuda())
+          images_var = Variable(images.to(device))
         else:
-          feats_var = Variable(feats.cuda())
-        answers_var = Variable(answers.cuda())
+          feats_var = Variable(feats.to(device))
+        answers_var = Variable(answers.to(device))
         text_embs = process_tokens(ocr_tokens)
         # print("OCR loading / processing + put stuff on cuda: " + str(time.time() - start))
         start = time.time()
-
+        import pdb;pdb.set_trace()
+        text_embs.to(device)
         scores = execution_engine(feats_var, programs_var, text_embs)
         # print("Total Resnet + BiLSTM: " + str(time.time() - start))
         start = time.time()
