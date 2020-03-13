@@ -1,4 +1,5 @@
 models/
+slurm*
 data/
 *.pyc
 .env/
