@@ -9,7 +9,7 @@
 import json
 import torch
 
-from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel
+from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel, TowerRepresentation
 
 
 def invert_dict(d):
@@ -63,6 +63,20 @@ def load_baseline(path):
     'CNN+LSTM': CnnLstmModel,
     'CNN+LSTM+SA': CnnLstmSaModel,
   }
+  checkpoint = load_cpu(path)
+  baseline_type = checkpoint['baseline_type']
+  kwargs = checkpoint['baseline_kwargs']
+  state = checkpoint['baseline_state']
+
+  model = model_cls_dict[baseline_type](**kwargs)
+  model.load_state_dict(state)
+  return model, kwargs
+
+def load_tower_model(path):
+  model_cls_dict = {
+    'gqn_tower': TowerRepresentation,
+  }
+  import pdb; pdb.set_trace()
   checkpoint = load_cpu(path)
   baseline_type = checkpoint['baseline_type']
   kwargs = checkpoint['baseline_kwargs']

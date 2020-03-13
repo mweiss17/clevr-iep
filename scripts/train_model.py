@@ -8,12 +8,12 @@
 
 import sys
 import os
-
+import time
 import argparse
 import json
 import random
 import shutil
-
+from tqdm import tqdm
 import torch
 torch.backends.cudnn.enabled = True
 from torch.autograd import Variable
@@ -24,16 +24,20 @@ import h5py
 import iep.utils as utils
 import iep.preprocess
 from iep.data import ClevrDataset, ClevrDataLoader
-from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel
+from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel, TowerRepresentation, MMModel
 
 
 parser = argparse.ArgumentParser()
 
 # Input data
 parser.add_argument('--train_question_h5', default='data/train_questions.h5')
-parser.add_argument('--train_features_h5', default='data/train_features.h5')
+parser.add_argument('--train_features_h5')
+parser.add_argument('--train_images_h5', default='data/train_images.h5')
+parser.add_argument('--train_ocr_token_json')
 parser.add_argument('--val_question_h5', default='data/val_questions.h5')
-parser.add_argument('--val_features_h5', default='data/val_features.h5')
+parser.add_argument('--val_features_h5')
+parser.add_argument('--val_images_h5', default='data/val_images.h5')
+parser.add_argument('--val_ocr_token_json')
 parser.add_argument('--feature_dim', default='1024,14,14')
 parser.add_argument('--vocab_json', default='data/vocab.json')
 
@@ -48,7 +52,7 @@ parser.add_argument('--shuffle_train_data', default=1, type=int)
 
 # What type of model to use and which parts to train
 parser.add_argument('--model_type', default='PG',
-        choices=['PG', 'EE', 'PG+EE', 'LSTM', 'CNN+LSTM', 'CNN+LSTM+SA'])
+        choices=['PG', 'EE', 'PG+EE', 'LSTM', 'CNN+LSTM', 'CNN+LSTM+SA', "PG+EE+GQNT"])
 parser.add_argument('--train_program_generator', default=1, type=int)
 parser.add_argument('--train_execution_engine', default=1, type=int)
 parser.add_argument('--baseline_train_only_rnn', default=0, type=int)
@@ -68,6 +72,7 @@ parser.add_argument('--rnn_dropout', default=0, type=float)
 parser.add_argument('--module_stem_num_layers', default=2, type=int)
 parser.add_argument('--module_stem_batchnorm', default=0, type=int)
 parser.add_argument('--module_dim', default=128, type=int)
+parser.add_argument('--text_dim', default=1, type=int)
 parser.add_argument('--module_residual', default=1, type=int)
 parser.add_argument('--module_batchnorm', default=0, type=int)
 
@@ -135,6 +140,8 @@ def main(args):
     'question_families': question_families,
     'max_samples': args.num_train_samples,
     'num_workers': args.loader_num_workers,
+    'image_h5': args.train_images_h5,
+    'ocr_token_json': args.train_ocr_token_json
   }
   val_loader_kwargs = {
     'question_h5': args.val_question_h5,
@@ -144,8 +151,9 @@ def main(args):
     'question_families': question_families,
     'max_samples': args.num_val_samples,
     'num_workers': args.loader_num_workers,
+    'image_h5': args.val_images_h5,
+    'ocr_token_json': args.val_ocr_token_json
   }
-
   with ClevrDataLoader(**train_loader_kwargs) as train_loader, \
        ClevrDataLoader(**val_loader_kwargs) as val_loader:
     train_loop(args, train_loader, val_loader)
@@ -167,13 +175,13 @@ def train_loop(args, train_loader, val_loader):
   pg_best_state, ee_best_state, baseline_best_state = None, None, None
 
   # Set up model
-  if args.model_type == 'PG' or args.model_type == 'PG+EE':
+  if args.model_type == 'PG' or args.model_type == 'PG+EE' or args.model_type == 'PG+EE+GQNT':
     program_generator, pg_kwargs = get_program_generator(args)
     pg_optimizer = torch.optim.Adam(program_generator.parameters(),
                                     lr=args.learning_rate)
     print('Here is the program generator:')
     print(program_generator)
-  if args.model_type == 'EE' or args.model_type == 'PG+EE':
+  if args.model_type == 'EE' or args.model_type == 'PG+EE'or args.model_type == 'PG+EE+GQNT':
     execution_engine, ee_kwargs = get_execution_engine(args)
     ee_optimizer = torch.optim.Adam(execution_engine.parameters(),
                                     lr=args.learning_rate)
@@ -188,6 +196,17 @@ def train_loop(args, train_loader, val_loader):
     print('Here is the baseline model')
     print(baseline_model)
     baseline_type = args.model_type
+  if args.model_type == 'PG+EE+GQNT':
+    kwargs = {
+      'n_channels': 3,
+      'v_dim': 224
+    }
+    model = MMModel(**kwargs)
+    params = model.parameters()
+    baseline_optimizer = torch.optim.Adam(params, lr=args.learning_rate)
+    print('Here is the GQNT model')
+    print(model)
+
   loss_fn = torch.nn.CrossEntropyLoss().cuda()
 
   stats = {
@@ -205,12 +224,15 @@ def train_loop(args, train_loader, val_loader):
   while t < args.num_iterations:
     epoch += 1
     print('Starting epoch %d' % epoch)
+    start = time.time()
     for batch in train_loader:
+      # print("data loader: " + str(time.time() - start))
+      start_batch = time.time()
+
       t += 1
-      questions, _, feats, answers, programs, _ = batch
+      questions, images, feats, answers, programs, _, ocr_tokens = batch
+      # print("mean answer value" + str((answers.sum() / float(len(answers))).item()))
       questions_var = Variable(questions.cuda())
-      feats_var = Variable(feats.cuda())
-      answers_var = Variable(answers.cuda())
       if programs[0] is not None:
         programs_var = Variable(programs.cuda())
 
@@ -223,11 +245,26 @@ def train_loop(args, train_loader, val_loader):
         pg_optimizer.step()
       elif args.model_type == 'EE':
         # Train execution engine with ground-truth programs
+        start = time.time()
+
         ee_optimizer.zero_grad()
-        scores = execution_engine(feats_var, programs_var)
+        if images[0] is not None:
+          images_var = Variable(images.cuda())
+        else:
+          feats_var = Variable(feats.cuda())
+        answers_var = Variable(answers.cuda())
+        text_embs = process_tokens(ocr_tokens)
+        # print("OCR loading / processing + put stuff on cuda: " + str(time.time() - start))
+        start = time.time()
+
+        scores = execution_engine(feats_var, programs_var, text_embs)
+        # print("Total Resnet + BiLSTM: " + str(time.time() - start))
+        start = time.time()
         loss = loss_fn(scores, answers_var)
         loss.backward()
         ee_optimizer.step()
+        # print("Optimization Step: " + str(time.time() - start))
+
       elif args.model_type in ['LSTM', 'CNN+LSTM', 'CNN+LSTM+SA']:
         baseline_optimizer.zero_grad()
         baseline_model.zero_grad()
@@ -255,10 +292,20 @@ def train_loop(args, train_loader, val_loader):
           pg_optimizer.zero_grad()
           program_generator.reinforce_backward(centered_reward.cuda())
           pg_optimizer.step()
+      elif args.model_type == 'PG+EE+GQNT':
+        programs_pred = program_generator.reinforce_sample(questions_var)
+        baseline_optimizer.zero_grad()
+        model.zero_grad()
+        text_embs = process_tokens(ocr_tokens)
+        scores = execution_engine(feats_var, programs_pred, text_embs)
+        loss = loss_fn(scores, answers_var)
+        loss.backward()
+        ee_optimizer.step()
+      # print("total batch time (without data loading): " + str(time.time() - start_batch))
 
       if t % args.record_loss_every == 0:
-        print(t, loss.data[0])
-        stats['train_losses'].append(loss.data[0])
+        print(t, loss.data.item())
+        stats['train_losses'].append(loss.data.item())
         stats['train_losses_ts'].append(t)
         if reward is not None:
           stats['train_rewards'].append(reward)
@@ -307,6 +354,30 @@ def train_loop(args, train_loader, val_loader):
       if t == args.num_iterations:
         break
 
+def process_tokens(ocr_tokens):
+  depth = 26
+  ones = torch.sparse.torch.eye(depth)
+  all_text_embs = torch.FloatTensor([])
+
+  # order the tokens by raster order
+  for scene in ocr_tokens:
+    chars_d = {}
+    for token in scene:
+      char = ord(token['body']) - ord('a')
+      chars_d["." + str(token['pixel_coords'][1]).split(".")[-1] + "." + str(token['pixel_coords'][0]).split(".")[-1]] = char
+
+    scene_chars = []
+    scene_locs = []
+    for key in sorted(chars_d):
+      scene_chars.append(chars_d[key])
+      scene_locs.append((float("." + key.split(".")[2]), float("." + key.split(".")[1])))
+
+    scene_chars = ones.index_select(0, torch.LongTensor(scene_chars))
+    scene_locs_vec = torch.FloatTensor(scene_locs)#.view(1, -1, 2)
+    scene_text_emb = torch.cat([scene_chars, scene_locs_vec], dim=1)
+
+    all_text_embs = torch.cat([all_text_embs, scene_text_emb.view(1, -1, 28)], dim=0)
+  return all_text_embs
 
 def parse_int_list(s):
   return tuple(int(n) for n in s.split(','))
@@ -357,6 +428,7 @@ def get_execution_engine(args):
       'stem_batchnorm': args.module_stem_batchnorm == 1,
       'stem_num_layers': args.module_stem_num_layers,
       'module_dim': args.module_dim,
+      'text_dim': args.text_dim,
       'module_residual': args.module_residual == 1,
       'module_batchnorm': args.module_batchnorm == 1,
       'classifier_proj_dim': args.classifier_proj_dim,
@@ -444,33 +516,39 @@ def set_mode(mode, models):
 def check_accuracy(args, program_generator, execution_engine, baseline_model, loader):
   set_mode('eval', [program_generator, execution_engine, baseline_model])
   num_correct, num_samples = 0, 0
-  for batch in loader:
-    questions, _, feats, answers, programs, _ = batch
-
-    questions_var = Variable(questions.cuda(), volatile=True)
-    feats_var = Variable(feats.cuda(), volatile=True)
-    answers_var = Variable(feats.cuda(), volatile=True)
-    if programs[0] is not None:
-      programs_var = Variable(programs.cuda(), volatile=True)
-
+  for batch in tqdm(loader):
+    questions, images, feats, answers, programs, _, ocr_tokens = batch
+    with torch.no_grad():
+      questions_var = Variable(questions.cuda())
+      if feats[0] is not None:
+        feats_var = Variable(feats.cuda())
+      answers_var = Variable(answers.cuda())
+      if programs[0] is not None:
+        programs_var = Variable(programs.cuda())
     scores = None # Use this for everything but PG
     if args.model_type == 'PG':
       vocab = utils.load_vocab(args.vocab_json)
       for i in range(questions.size(0)):
-        program_pred = program_generator.sample(Variable(questions[i:i+1].cuda(), volatile=True))
+        with torch.no_grad():
+          program_pred = program_generator.sample(Variable(questions[i:i+1].cuda()))
         program_pred_str = iep.preprocess.decode(program_pred, vocab['program_idx_to_token'])
-        program_str = iep.preprocess.decode(programs[i], vocab['program_idx_to_token'])
+        program_str = iep.preprocess.decode(programs[i].tolist(), vocab['program_idx_to_token'])
         if program_pred_str == program_str:
           num_correct += 1
         num_samples += 1
     elif args.model_type == 'EE':
-        scores = execution_engine(feats_var, programs_var)
+      text_embs = process_tokens(ocr_tokens)
+      scores = execution_engine(feats_var, programs_var, text_embs)
     elif args.model_type == 'PG+EE':
       programs_pred = program_generator.reinforce_sample(
                           questions_var, argmax=True)
       scores = execution_engine(feats_var, programs_pred)
     elif args.model_type in ['LSTM', 'CNN+LSTM', 'CNN+LSTM+SA']:
       scores = baseline_model(questions_var, feats_var)
+    elif args.model_type == 'PG+EE+GQNT':
+      programs_pred = program_generator.reinforce_sample(questions_var)
+      text_embs = process_tokens(ocr_tokens)
+      scores = execution_engine(feats_var, programs_pred, text_embs)
 
     if scores is not None:
       _, preds = scores.data.cpu().max(1)

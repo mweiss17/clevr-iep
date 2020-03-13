@@ -1,5 +1,7 @@
+.idea/
 models/
 slurm*
+*.zip
 data/
 *.pyc
 .env/

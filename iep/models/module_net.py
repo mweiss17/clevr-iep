@@ -78,6 +78,7 @@ class ModuleNet(nn.Module):
                stem_num_layers=2,
                stem_batchnorm=False,
                module_dim=128,
+               text_dim=1,
                module_residual=True,
                module_batchnorm=False,
                classifier_proj_dim=512,
@@ -88,17 +89,19 @@ class ModuleNet(nn.Module):
                verbose=True):
     super(ModuleNet, self).__init__()
 
-
     self.stem = build_stem(feature_dim[0], module_dim,
                            num_layers=stem_num_layers,
                            with_batchnorm=stem_batchnorm)
     if verbose:
       print('Here is my stem:')
       print(self.stem)
-
+    self.char_lstm = nn.LSTM(input_size=28, hidden_size=98, bidirectional=True, batch_first=True)
+    encoder_layer = nn.TransformerEncoderLayer(d_model=28, nhead=7)
+    self.char_transformer = nn.TransformerEncoder(encoder_layer=encoder_layer, num_layers=3)
+    self.char_linear = nn.Linear(28, 196)
     num_answers = len(vocab['answer_idx_to_token'])
     module_H, module_W = feature_dim[1], feature_dim[2]
-    self.classifier = build_classifier(module_dim, module_H, module_W, num_answers,
+    self.classifier = build_classifier(module_dim+text_dim, module_H, module_W, num_answers,
                                        classifier_fc_layers,
                                        classifier_proj_dim,
                                        classifier_downsample,
@@ -119,11 +122,11 @@ class ModuleNet(nn.Module):
       num_inputs = iep.programs.get_num_inputs(fn_str)
       self.function_modules_num_inputs[fn_str] = num_inputs
       if fn_str == 'scene' or num_inputs == 1:
-        mod = ResidualBlock(module_dim,
+        mod = ResidualBlock(module_dim+text_dim,
                 with_residual=module_residual,
                 with_batchnorm=module_batchnorm)
       elif num_inputs == 2:
-        mod = ConcatBlock(module_dim,
+        mod = ConcatBlock(module_dim+text_dim,
                 with_residual=module_residual,
                 with_batchnorm=module_batchnorm)
       self.add_module(fn_str, mod)
@@ -183,7 +186,7 @@ class ModuleNet(nn.Module):
     used_fn_j = True
     if j < program.size(1):
       fn_idx = program.data[i, j]
-      fn_str = self.vocab['program_idx_to_token'][fn_idx]
+      fn_str = self.vocab['program_idx_to_token'][fn_idx.item()]
     else:
       used_fn_j = False
       fn_str = 'scene'
@@ -215,6 +218,7 @@ class ModuleNet(nn.Module):
       each image.
     """
     N = feats.size(0)
+
     final_module_outputs = []
     self.used_fns = torch.Tensor(program.size()).fill_(0)
     for i in range(N):
@@ -224,20 +228,41 @@ class ModuleNet(nn.Module):
     final_module_outputs = torch.cat(final_module_outputs, 0)
     return final_module_outputs
 
-  def forward(self, x, program):
+  def forward(self, x, program, text=None):
     N = x.size(0)
     assert N == len(program)
 
+    import time
+    start = time.time()
     feats = self.stem(x)
+    # print("   Conv Net Stem: " + str(time.time() - start))
+    start = time.time()
+    output, (hn, cn) = self.char_lstm(text.cuda())
+    # print("   Char LSTM: " + str(time.time() - start))
 
+
+    # if we want a char transformer
+    # output = self.char_transformer(text.cuda())
+    # output = torch.mean(output, dim=1)
+    # output = self.char_linear(output)
+
+    start = time.time()
+
+    hn = hn.permute(1, 0, 2)
+    # cat the text and the feats
+    feats = torch.cat([feats, hn.reshape(-1, 1, 14, 14)], dim=1)
     if type(program) is list or type(program) is tuple:
       final_module_outputs = self._forward_modules_json(feats, program)
-    elif type(program) is Variable and program.dim() == 2:
+    elif (type(program) is Variable or type(program) is torch.Tensor) and program.dim() == 2:
       final_module_outputs = self._forward_modules_ints(feats, program)
     else:
       raise ValueError('Unrecognized program format')
+    print("   ResNet Forward: " + str(time.time() - start))
+    start = time.time()
 
     # After running modules for each input, concatenat the outputs from the
     # final module and run the classifier.
     out = self.classifier(final_module_outputs)
+    # print("   Classifier: " + str(time.time() - start))
+
     return out
