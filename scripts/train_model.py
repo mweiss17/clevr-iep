@@ -260,7 +260,6 @@ def train_loop(args, train_loader, val_loader):
         text_embs = process_tokens(ocr_tokens)
         # print("OCR loading / processing + put stuff on cuda: " + str(time.time() - start))
         start = time.time()
-        import pdb;pdb.set_trace()
         text_embs.to(device)
         scores = execution_engine(feats_var, programs_var, text_embs)
         # print("Total Resnet + BiLSTM: " + str(time.time() - start))
