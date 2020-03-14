@@ -24,7 +24,7 @@ import h5py
 import iep.utils as utils
 import iep.preprocess
 from iep.data import ClevrDataset, ClevrDataLoader
-from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel, TowerRepresentation, MMModel
+from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel
 
 
 parser = argparse.ArgumentParser()
@@ -231,7 +231,6 @@ def train_loop(args, train_loader, val_loader):
     for batch in train_loader:
       # print("data loader: " + str(time.time() - start))
       start_batch = time.time()
-      import pdb;pdb.set_trace()
       device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
       t += 1

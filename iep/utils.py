@@ -9,7 +9,7 @@
 import json
 import torch
 
-from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel, TowerRepresentation
+from iep.models import ModuleNet, Seq2Seq, LstmModel, CnnLstmModel, CnnLstmSaModel
 
 
 def invert_dict(d):

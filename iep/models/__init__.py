@@ -9,4 +9,3 @@
 from iep.models.module_net import ModuleNet
 from iep.models.seq2seq import Seq2Seq
 from iep.models.baselines import LstmModel, CnnLstmModel, CnnLstmSaModel
-from iep.models.gqn_tower import TowerRepresentation, MMModel

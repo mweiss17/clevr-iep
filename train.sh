@@ -34,6 +34,8 @@ python scripts/train_model.py \
 #  --train_images_h5 data/train_clevr_text_images.h5 \
 #  --val_images_h5 data/val_clevr_text_images.h5 \
 
+# salloc --time=1:0:0 --acount=rpp-bengioy --gres=gpu:2 --cpus-per-task=2 --mem=20G
+
 CUDA_VISIBLE_DEVICES=1 python scripts/train_model.py  \
   --model_type PG+EE+GQNT   \
   --num_train_samples 18000   \

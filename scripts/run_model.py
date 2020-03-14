@@ -62,6 +62,7 @@ parser.add_argument('--output_h5', default=None)
 def main(args):
   print()
   model = None
+  import pdb; pdb.set_trace()
   if args.baseline_model is not None:
     print('Loading baseline model from ', args.baseline_model)
     model, _ = utils.load_baseline(args.baseline_model)
