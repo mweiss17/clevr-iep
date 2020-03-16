@@ -237,7 +237,7 @@ class ModuleNet(nn.Module):
     feats = self.stem(x)
     # print("   Conv Net Stem: " + str(time.time() - start))
     start = time.time()
-    output, (hn, cn) = self.char_lstm(text.cuda())
+    output, (hn, cn) = self.char_lstm(text)
     # print("   Char LSTM: " + str(time.time() - start))
 
 
