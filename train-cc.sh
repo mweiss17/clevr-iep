@@ -3,13 +3,20 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=25G
 module load python/3.8
-module load miniconda3
-source $HOME/clevr-iep/bin/activate
-mkdir $SLURM_TMPDIR/kaggle2015
-cp /home/mweiss10/scratch/clevr-txt-v1.tar.xz $SLURM_TMPDIR/clevr-txt
-unzip $SLURM_TMPDIR/clevr-txt-v1.tar.xz -d $SLURM_TMPDIR/clevr-txt
-mv $SLURM_TMPDIR/kaggle2015/resized_train15 $SLURM_TMPDIR/kaggle2015/train
-mv $SLURM_TMPDIR/kaggle2015/trainLabels15.csv $SLURM_TMPDIR/kaggle2015/trainLabels.csv
-cd /network/home/luckmarg/fundus-eye-test
-python train.py --dataset_dir $SLURM_TMPDIR/kaggle2015 --cfg /network/home/luckmarg/exp-fundus/2015/224_lr01.yml --results_dir /network/home/luckmarg/results_fundus/2015
-
+source $HOME/clevr-iep/venv/bin/activate
+mkdir $SLURM_TMPDIR/clevr-iep
+cp /home/mweiss10/scratch/clevr-text-simple.zip $SLURM_TMPDIR/clevr-iep/clevr-text-simple.zip
+unzip $SLURM_TMPDIR/clevr-iep/clevr-text-simple.zip -d $SLURM_TMPDIR/data
+cd /home/mweiss10/clevr-iep
+python scripts/train_model.py \
+  --model_type EE \
+  --program_generator_start_from $SLURM_TMPDIR/data/program_generator.py \
+  --num_iterations 100000 \
+  --train_ocr_token_json $SLURM_TMPDIR/data/CLEVR_ocr.json   \
+  --val_ocr_token_json $SLURM_TMPDIR/data/CLEVR_ocr.json   \
+  --train_features_h5 $SLURM_TMPDIR/data/train_clevr_text_simple_features.h5 \
+  --val_features_h5 $SLURM_TMPDIR/data/val_clevr_text_simple_features.h5 \
+  --checkpoint_path $SLURM_TMPDIR/data/execution_engine.pt \
+  --vocab_json $SLURM_TMPDIR/data/vocab.json \
+  --train_question_h5 $SLURM_TMPDIR/data/train_questions.h5 \
+  --val_question_h5 $SLURM_TMPDIR/data/val_questions.h5
