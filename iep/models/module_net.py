@@ -233,6 +233,7 @@ class ModuleNet(nn.Module):
     assert N == len(program)
 
     import time
+    import pdb; pdb.set_trace()
     start = time.time()
     feats = self.stem(x)
     # print("   Conv Net Stem: " + str(time.time() - start))
