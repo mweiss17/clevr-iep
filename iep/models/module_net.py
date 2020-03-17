@@ -131,7 +131,6 @@ class ModuleNet(nn.Module):
                 with_batchnorm=module_batchnorm)
       self.add_module(fn_str, mod)
       self.function_modules[fn_str] = mod
-
     self.save_module_outputs = False
 
   def expand_answer_vocab(self, answer_to_idx, std=0.01, init_b=-50):
@@ -209,6 +208,7 @@ class ModuleNet(nn.Module):
         cur_input, j = self._forward_modules_ints_helper(feats, program, i, j)
         module_inputs.append(cur_input)
     module_output = module(*module_inputs)
+    
     return module_output, j
 
   def _forward_modules_ints(self, feats, program):
@@ -218,9 +218,9 @@ class ModuleNet(nn.Module):
       each image.
     """
     N = feats.size(0)
-
+    device = [x for x in self.parameters()][0].device
     final_module_outputs = []
-    self.used_fns = torch.Tensor(program.size()).fill_(0)
+    self.used_fns = torch.Tensor(program.size()).fill_(0).to(device)
     for i in range(N):
       cur_output, _ = self._forward_modules_ints_helper(feats, program, i, 0)
       final_module_outputs.append(cur_output)
@@ -237,6 +237,7 @@ class ModuleNet(nn.Module):
     feats = self.stem(x)
     # print("   Conv Net Stem: " + str(time.time() - start))
     start = time.time()
+    self.char_lstm.flatten_parameters()
     output, (hn, cn) = self.char_lstm(text)
     # print("   Char LSTM: " + str(time.time() - start))
 

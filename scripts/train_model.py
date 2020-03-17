@@ -185,7 +185,7 @@ def train_loop(args, train_loader, val_loader):
   if args.model_type == 'EE' or args.model_type == 'PG+EE'or args.model_type == 'PG+EE+GQNT':
     execution_engine, ee_kwargs = get_execution_engine(args)
     if args.multi_gpu:
-      execution_engine = torch.nn.DataParallel(execution_engine)
+      execution_engine = torch.nn.DataParallel(execution_engine, device_ids=[0, 1])
     ee_optimizer = torch.optim.Adam(execution_engine.parameters(),
                                     lr=args.learning_rate)
     print('Here is the execution engine:')
@@ -231,8 +231,8 @@ def train_loop(args, train_loader, val_loader):
     for batch in train_loader:
       # print("data loader: " + str(time.time() - start))
       start_batch = time.time()
-      device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+      device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+      execution_engine = execution_engine.to(device)
       t += 1
       questions, images, feats, answers, programs, _, ocr_tokens = batch
       # print("mean answer value" + str((answers.sum() / float(len(answers))).item()))
@@ -260,7 +260,7 @@ def train_loop(args, train_loader, val_loader):
         text_embs = process_tokens(ocr_tokens)
         # print("OCR loading / processing + put stuff on cuda: " + str(time.time() - start))
         start = time.time()
-        text_embs.to(device)
+        text_embs = text_embs.to(device)
         scores = execution_engine(feats_var, programs_var, text_embs)
         # print("Total Resnet + BiLSTM: " + str(time.time() - start))
         start = time.time()
