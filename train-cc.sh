@@ -10,7 +10,6 @@ unzip $SLURM_TMPDIR/clevr-iep/clevr-text-simple.zip -d $SLURM_TMPDIR/data
 cd /home/mweiss10/clevr-iep
 python scripts/train_model.py \
   --model_type EE \
-  --multi_gpu \
   --program_generator_start_from $SLURM_TMPDIR/data/program_generator.py \
   --num_iterations 100000 \
   --train_ocr_token_json $SLURM_TMPDIR/data/CLEVR_ocr.json   \
@@ -20,4 +19,5 @@ python scripts/train_model.py \
   --checkpoint_path $SLURM_TMPDIR/data/execution_engine.pt \
   --vocab_json $SLURM_TMPDIR/data/vocab.json \
   --train_question_h5 $SLURM_TMPDIR/data/train_questions.h5 \
-  --val_question_h5 $SLURM_TMPDIR/data/val_questions.h5
+  --val_question_h5 $SLURM_TMPDIR/data/val_questions.h5 \
+  --multi_gpu

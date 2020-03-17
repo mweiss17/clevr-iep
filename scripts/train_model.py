@@ -184,8 +184,12 @@ def train_loop(args, train_loader, val_loader):
     print(program_generator)
   if args.model_type == 'EE' or args.model_type == 'PG+EE'or args.model_type == 'PG+EE+GQNT':
     execution_engine, ee_kwargs = get_execution_engine(args)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if args.multi_gpu:
       execution_engine = torch.nn.DataParallel(execution_engine)
+    elif device is not "cpu":
+      execution_engine = execution_engine.cuda()
+
     ee_optimizer = torch.optim.Adam(execution_engine.parameters(),
                                     lr=args.learning_rate)
     print('Here is the execution engine:')
@@ -231,7 +235,6 @@ def train_loop(args, train_loader, val_loader):
     for batch in train_loader:
       # print("data loader: " + str(time.time() - start))
       start_batch = time.time()
-      device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
       t += 1
       questions, images, feats, answers, programs, _, ocr_tokens = batch
