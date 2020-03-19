@@ -184,8 +184,12 @@ def train_loop(args, train_loader, val_loader):
     print(program_generator)
   if args.model_type == 'EE' or args.model_type == 'PG+EE'or args.model_type == 'PG+EE+GQNT':
     execution_engine, ee_kwargs = get_execution_engine(args)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if args.multi_gpu:
-      execution_engine = torch.nn.DataParallel(execution_engine, device_ids=[0, 1])
+      execution_engine = torch.nn.DataParallel(execution_engine)
+    elif device is not "cpu":
+      execution_engine = execution_engine.cuda()
+
     ee_optimizer = torch.optim.Adam(execution_engine.parameters(),
                                     lr=args.learning_rate)
     print('Here is the execution engine:')
@@ -227,12 +231,11 @@ def train_loop(args, train_loader, val_loader):
   while t < args.num_iterations:
     epoch += 1
     print('Starting epoch %d' % epoch)
+    start_epoch = time.time()
     start = time.time()
     for batch in train_loader:
       # print("data loader: " + str(time.time() - start))
       start_batch = time.time()
-      device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-      execution_engine = execution_engine.to(device)
       t += 1
       questions, images, feats, answers, programs, _, ocr_tokens = batch
       # print("mean answer value" + str((answers.sum() / float(len(answers))).item()))
@@ -305,7 +308,7 @@ def train_loop(args, train_loader, val_loader):
         loss = loss_fn(scores, answers_var)
         loss.backward()
         ee_optimizer.step()
-      # print("total batch time (without data loading): " + str(time.time() - start_batch))
+      print("total batch time (without data loading): " + str(time.time() - start_batch))
 
       if t % args.record_loss_every == 0:
         print(t, loss.data.item())
@@ -315,6 +318,8 @@ def train_loop(args, train_loader, val_loader):
           stats['train_rewards'].append(reward)
 
       if t % args.checkpoint_every == 0:
+        print('epoch time')
+        print(time.time() - start_epoch)
         print('Checking training accuracy ... ')
         train_acc = check_accuracy(args, program_generator, execution_engine,
                                    baseline_model, train_loader)

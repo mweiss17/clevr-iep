@@ -118,7 +118,8 @@ class ModuleNet(nn.Module):
     self.function_modules = {}
     self.function_modules_num_inputs = {}
     self.vocab = vocab
-    for fn_str in vocab['program_token_to_idx']:
+    self.module_list = []
+    for idx, fn_str in enumerate(vocab['program_token_to_idx']):
       num_inputs = iep.programs.get_num_inputs(fn_str)
       self.function_modules_num_inputs[fn_str] = num_inputs
       if fn_str == 'scene' or num_inputs == 1:
@@ -130,7 +131,9 @@ class ModuleNet(nn.Module):
                 with_residual=module_residual,
                 with_batchnorm=module_batchnorm)
       self.add_module(fn_str, mod)
-      self.function_modules[fn_str] = mod
+      self.module_list.append(mod)
+      self.function_modules[fn_str] = idx
+    self.module_list = nn.ModuleList(self.module_list)
     self.save_module_outputs = False
 
   def expand_answer_vocab(self, answer_to_idx, std=0.01, init_b=-50):
@@ -168,7 +171,9 @@ class ModuleNet(nn.Module):
       module_outputs = []
       for j, f in enumerate(program[i]):
         f_str = iep.programs.function_to_str(f)
-        module = self.function_modules[f_str]
+        idx = self.function_modules[f_str]
+        module = self.modules[idx]
+
         if f_str == 'scene':
           module_inputs = [feats[i:i+1]]
         else:
@@ -198,7 +203,8 @@ class ModuleNet(nn.Module):
     if used_fn_j:
       self.used_fns[i, j] = 1
     j += 1
-    module = self.function_modules[fn_str]
+    idx = self.function_modules[fn_str]
+    module = self.module_list[idx]
     if fn_str == 'scene':
       module_inputs = [feats[i:i+1]]
     else:
