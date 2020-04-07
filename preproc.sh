@@ -19,6 +19,11 @@ python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset
 python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/clevr-text-simple --input_scenes_json ../clevr-dataset-gen/output/clevr-text-simple/   --output_h5_file data/val_questions.h5   --input_vocab_json data/vocab.json --multi_dir --binary_qs_only
 python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/clevr-text-simple --input_scenes_json ../clevr-dataset-gen/output/clevr-text-simple/   --output_h5_file data/test_questions.h5   --input_vocab_json data/vocab.json --multi_dir --binary_qs_only
 
+# process questions clevr-text-simple-2
+python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/clevr-text-simple-2 --input_scenes_json ../clevr-dataset-gen/output/clevr-text-simple-2/   --output_h5_file data/train_questions.h5   --output_vocab_json data/vocab.json --multi_dir --binary_qs_only
+python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/clevr-text-simple-2 --input_scenes_json ../clevr-dataset-gen/output/clevr-text-simple-2/   --output_h5_file data/val_questions.h5   --input_vocab_json data/vocab.json --multi_dir --binary_qs_only
+python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/clevr-text-simple-2 --input_scenes_json ../clevr-dataset-gen/output/clevr-text-simple-2/   --output_h5_file data/test_questions.h5   --input_vocab_json data/vocab.json --multi_dir --binary_qs_only
+
 # process questions clevr-text
 python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/train-clevr-text/CLEVR_questions.json --input_scenes_json ../clevr-dataset-gen/output/train-clevr-text/CLEVR_scenes.json   --output_h5_file data/train_questions.h5   --output_vocab_json data/vocab.json
 python scripts/preprocess_questions.py   --input_questions_json ../clevr-dataset-gen/output/val-clevr-text/CLEVR_questions.json --input_scenes_json ../clevr-dataset-gen/output/val-clevr-text/CLEVR_scenes.json   --output_h5_file data/val_questions.h5   --input_vocab_json data/vocab.json
