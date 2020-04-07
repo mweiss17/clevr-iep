@@ -260,10 +260,9 @@ def train_loop(args, train_loader, val_loader):
         else:
           feats_var = Variable(feats.to(device))
         answers_var = Variable(answers.to(device))
-        text_embs = process_tokens(ocr_tokens)
+        text_embs = process_tokens(ocr_tokens).to(device)
         # print("OCR loading / processing + put stuff on cuda: " + str(time.time() - start))
         start = time.time()
-        text_embs.to(device)
         scores = execution_engine(feats_var, programs_var, text_embs)
         # print("Total Resnet + BiLSTM: " + str(time.time() - start))
         start = time.time()
@@ -544,7 +543,7 @@ def check_accuracy(args, program_generator, execution_engine, baseline_model, lo
           num_correct += 1
         num_samples += 1
     elif args.model_type == 'EE':
-      text_embs = process_tokens(ocr_tokens)
+      text_embs = process_tokens(ocr_tokens).cuda()
       scores = execution_engine(feats_var, programs_var, text_embs)
     elif args.model_type == 'PG+EE':
       programs_pred = program_generator.reinforce_sample(
