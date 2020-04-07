@@ -1,7 +1,10 @@
 #!/bin/bash
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=25G
+#SBATCH --account=rpp-bengioy
+#SBATCH --time=12:00:00
+#SBATCH --cpus-per-task 16
 module load python/3.8
 source $HOME/clevr-iep/venv/bin/activate
 mkdir $SLURM_TMPDIR/clevr-iep
@@ -20,4 +23,5 @@ python scripts/train_model.py \
   --vocab_json $SLURM_TMPDIR/data/vocab.json \
   --train_question_h5 $SLURM_TMPDIR/data/train_questions.h5 \
   --val_question_h5 $SLURM_TMPDIR/data/val_questions.h5 \
-  --multi_gpu
+  --multi_gpu \
+  --loader_num_workers 8
