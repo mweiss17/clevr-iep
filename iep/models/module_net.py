@@ -157,7 +157,6 @@ class ModuleNet(nn.Module):
         def gen_hook(i, j):
             def hook(grad):
                 self.all_module_grad_outputs[i][j] = grad.data.cpu().clone()
-
             return hook
 
         self.all_module_outputs = []
@@ -239,21 +238,13 @@ class ModuleNet(nn.Module):
         N = x.size(0)
         assert N == len(program)
 
-        import time
-        start = time.time()
         feats = self.stem(x)
-        # print("   Conv Net Stem: " + str(time.time() - start))
-        start = time.time()
         self.char_lstm.flatten_parameters()
         output, (hn, cn) = self.char_lstm(text)
-        # print("   Char LSTM: " + str(time.time() - start))
-
         # if we want a char transformer
         # output = self.char_transformer(text.cuda())
         # output = torch.mean(output, dim=1)
         # output = self.char_linear(output)
-
-        start = time.time()
 
         hn = hn.permute(1, 0, 2)
         # cat the text and the feats
@@ -264,12 +255,9 @@ class ModuleNet(nn.Module):
             final_module_outputs = self._forward_modules_ints(feats, program)
         else:
             raise ValueError('Unrecognized program format')
-        print("   ResNet Forward: " + str(time.time() - start))
-        start = time.time()
 
         # After running modules for each input, concatenat the outputs from the
         # final module and run the classifier.
         out = self.classifier(final_module_outputs)
-        # print("   Classifier: " + str(time.time() - start))
 
         return out
